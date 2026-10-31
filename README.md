@@ -8,6 +8,7 @@ DataMate là hệ thống trả lời câu hỏi tiếng Việt trên dữ liệ
 - [Quy tắc đánh giá](docs/EVALUATION.md)
 - [Ràng buộc kỹ thuật](docs/CONSTRAINTS.md)
 - [Các vòng thi và hướng dẫn nộp bài](docs/SUBMISSION.md)
+- [Sơ đồ luồng inference theo module](docs/ARCHITECTURE.md)
 
 ## Môi trường phát triển trên Mac
 
