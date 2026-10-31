@@ -21,13 +21,64 @@ class FakeLLM:
     def infer(self, messages, *, max_tokens=512, temperature=0.0):
         self.calls.append(messages)
         if len(self.calls) % 2:
-            return json.dumps({"status": "ok", "answer_type": "number", "number_kind": "money",
+            return json.dumps({"answer_type": "number", "number_kind": "money",
                                "metric": "doanh thu", "calendar_request": None})
         return json.dumps({"status": "ok", "answer_type": "number", "number_kind": "money",
                            "sql": 'SELECT SUM(TRY_CAST("amount" AS DOUBLE)) FROM t_csv_orders'})
 
 
 class InferenceFlowTests(unittest.TestCase):
+    def test_stage_one_extracts_and_stage_two_can_abstain(self):
+        class TwoStageLLM:
+            def __init__(self):
+                self.responses = iter([
+                    {"answer_type": "number", "metric": "doanh thu", "calendar_request": None},
+                    {"status": "abstain", "answer_type": "abstain", "reason": "Không chắc về cột dữ liệu"},
+                ])
+                self.calls = 0
+
+            def infer(self, *args, **kwargs):
+                self.calls += 1
+                return json.dumps(next(self.responses))
+
+        class MinimalCatalog:
+            readme = "Dữ liệu công ty"
+
+            def describe(self):
+                return "Bảng công ty"
+
+        llm = TwoStageLLM()
+        result = InferencePipeline(llm).run(
+            {"id": "q1", "question": "?", "as_of_date": "2026-01-01"},
+            "rulebook", None, MinimalCatalog(),
+        )
+        self.assertEqual(result.record, {"id": "q1", "type": "abstain"})
+        self.assertEqual(llm.calls, 2)
+
+    def test_stage_two_marks_verified_missing_data_unanswerable(self):
+        class TwoStageLLM:
+            responses = iter([
+                {"answer_type": "number", "number_kind": "money"},
+                {"status": "unanswerable", "answer_type": "unanswerable", "sql": None,
+                 "reason": "README xác nhận không có giá vốn"},
+            ])
+
+            def infer(self, *args, **kwargs):
+                return json.dumps(next(self.responses))
+
+        class MinimalCatalog:
+            readme = "Không ghi giá vốn"
+
+            def describe(self):
+                return "Không có cột giá vốn"
+
+        result = InferencePipeline(TwoStageLLM()).run(
+            {"id": "q2", "question": "Lợi nhuận?", "as_of_date": "2026-01-01"},
+            "rulebook", None, MinimalCatalog(),
+        )
+        self.assertEqual(result.record, {"id": "q2", "type": "unanswerable",
+                                         "reason": "README xác nhận không có giá vốn"})
+
     def test_runner_writes_answer_from_sql(self):
         with tempfile.TemporaryDirectory() as root:
             dataset = Path(root) / "dataset"

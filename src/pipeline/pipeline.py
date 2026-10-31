@@ -53,13 +53,16 @@ class InferencePipeline:
         try:
             first = self.llm.infer([
             {"role": "system", "content": (
-                "Bạn phân tích câu hỏi dữ liệu doanh nghiệp. Chỉ trả một JSON object NGẮN GỌN, tối đa 700 ký tự; "
-                "không tạo SQL, không đoán đáp án. Mỗi trường chỉ ghi thông tin có căn cứ, không giải thích dài. "
-                "Dùng rulebook làm nguồn luật và as_of_date là hôm nay. JSON gồm: status ('ok' hoặc 'unanswerable'), "
-                "answer_type (number/percent/string/date/boolean/list/table), number_kind (money/count/decimal hoặc null), "
+                "Bạn phân tích câu hỏi dữ liệu doanh nghiệp. Chỉ trả một JSON object ngắn gọn; "
+                "không tạo SQL, không đoán đáp án. Dùng rulebook làm nguồn luật và as_of_date là hôm nay. "
+                "Đây chỉ là bước trích xuất thông tin, không quyết định có trả lời được hay không. "
+                "Không xuất status, unanswerable hay abstain. "
+                "answer_type là kiểu đáp án dự kiến: number/percent/string/date/boolean/list/table; "
+                "để null nếu câu hỏi chưa xác định rõ kiểu. "
+                "JSON còn gồm number_kind (money/count/decimal hoặc null), "
                 "date_granularity (day/month), metric, definitions, filters, time_window (start/end YYYY-MM-DD hoặc null), "
                 "calendar_request (null hoặc object kind=lunar_date/lunar_month/tet với year, month, day, leap khi cần), "
-                "unit, required_data, reason. Đưa điều kiện hợp lệ, đơn vị quy đổi và ngoại lệ vào definitions. "
+                "unit, required_data, unresolved. Đưa điều kiện hợp lệ, đơn vị quy đổi và ngoại lệ vào definitions. "
                 "Nếu câu hỏi liên quan ngày âm hoặc Tết, yêu cầu tra calendar; không tự tính ngày âm. "
                 "Không tự bịa trạng thái đơn, tên cột hay khoảng thời gian không có trong câu hỏi/rulebook. "
                 "Để null khi chưa xác định được. README công ty và cột thật sẽ được đưa vào lượt sau."
@@ -73,14 +76,12 @@ class InferencePipeline:
             raise PipelineFailure(str(exc), trace) from exc
         trace["stage1_raw"] = first
         try:
-            plan = _json_object(first, {"status", "answer_type"})
+            plan = _json_object(first, {"answer_type"})
         except ValueError as exc:
             raise PipelineFailure(str(exc), trace) from exc
         trace["stage1"] = plan
-        if plan["status"] == "unanswerable":
-            return PipelineResult(format_answer(question_id, "unanswerable", reason=plan.get("reason")), trace)
-        if plan["status"] != "ok":
-            raise ValueError(f"unexpected stage 1 status: {plan['status']}")
+        if plan.get("answer_type") not in (None, "number", "percent", "string", "date", "boolean", "list", "table"):
+            raise ValueError("stage 1 returned an invalid expected answer type")
         if plan.get("calendar_request"):
             plan["resolved_calendar_window"] = calendar.resolve(plan["calendar_request"])
             trace["calendar"] = plan["resolved_calendar_window"]
@@ -95,10 +96,14 @@ class InferencePipeline:
                 "Chỉ tạo một SELECT hoặc WITH...SELECT; không gọi hàm đọc file hay sửa bảng. Tất cả cột dữ liệu là VARCHAR: "
                 "dùng TRY_CAST/TRY_STRPTIME khi tính số/ngày, chú ý dấu phân cách nghìn trong giá trị mẫu. "
                 "Dùng khoảng ngày đã giải từ calendar nếu có. Không phỏng đoán cột không có trong schema. "
-                "JSON gồm status ('ok' hoặc 'unanswerable'), sql, answer_type, number_kind, date_granularity, reason. "
+                "JSON gồm status (ok/unanswerable/abstain), sql, answer_type, number_kind, date_granularity, reason. "
+                "unanswerable chỉ khi README/schema hoặc phạm vi dữ liệu chứng minh thiếu thông tin cần thiết; "
+                "ví dụ kỳ hỏi hoàn toàn ngoài khoảng dữ liệu. Không có dòng khớp trong một kỳ có dữ liệu có thể là số 0, "
+                "không tự động là unanswerable. Khi không chắc, chọn abstain. Với unanswerable/abstain, "
+                "answer_type bằng status, sql để null; reason ngắn gọn. "
                 "SQL trả đúng giá trị cần nộp: scalar một ô; list một cột nhiều dòng hoặc một dòng nhiều cột; "
                 "table nhiều cột nhiều dòng. Sắp xếp list theo rulebook. Percent dùng thang 0-100. "
-                "Nếu dữ liệu thiếu thông tin cần thiết, trả status=unanswerable."
+                "Không phỏng đoán giá trị từ dữ liệu chưa truy vấn."
             )},
             {"role": "user", "content": (
                 "Kế hoạch:\n" + json.dumps(plan, ensure_ascii=False) + "\n\n"
@@ -116,10 +121,14 @@ class InferencePipeline:
         trace["stage2"] = sql_plan
         if sql_plan["status"] == "unanswerable":
             return PipelineResult(format_answer(question_id, "unanswerable", reason=sql_plan.get("reason")), trace)
+        if sql_plan["status"] == "abstain":
+            return PipelineResult(format_answer(question_id, "abstain"), trace)
         if sql_plan["status"] != "ok" or not isinstance(sql_plan.get("sql"), str):
             raise ValueError("stage 2 did not return SQL")
-        answer_type = sql_plan.get("answer_type", plan["answer_type"])
-        if answer_type != plan["answer_type"]:
+        answer_type = sql_plan.get("answer_type") or plan.get("answer_type")
+        if answer_type not in ("number", "percent", "string", "date", "boolean", "list", "table"):
+            raise ValueError("stage 2 must choose a concrete answer type when status is ok")
+        if plan.get("answer_type") is not None and answer_type != plan["answer_type"]:
             raise ValueError("answer type changed between LLM stages")
         columns, rows = catalog.execute(sql_plan["sql"])
         trace["sql_result"] = {"columns": columns, "row_count": len(rows), "preview": rows[:3]}

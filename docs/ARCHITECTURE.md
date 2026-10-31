@@ -6,9 +6,10 @@ Tài liệu này mô tả ranh giới các module của bản chạy thử. Các
 
 ```mermaid
 flowchart LR
-    A[Đường dẫn model] --> B[Khởi tạo LLM một lần]
+    A[--model và --runtime] --> B[Chọn backend MLX hoặc vLLM]
+    B --> F[Khởi tạo LLM một lần]
     C[Pipeline: messages và tham số sinh] --> D[LLM.infer]
-    B --> D
+    F --> D
     D --> E[Text trả về pipeline]
 ```
 
@@ -46,18 +47,19 @@ LLM chỉ nhận diện nhu cầu tra lịch; code xác định ngày. Nếu ng�
 
 ```mermaid
 flowchart TD
-    A[Question + as_of_date] --> B[Chọn luật liên quan]
-    B --> C[LLM lượt 1: kế hoạch JSON]
-    C --> D[Calendar resolver nếu cần]
+    A[Question + as_of_date + toàn bộ rulebook] --> B[LLM lượt 1: trích xuất JSON]
+    B --> D[Calendar resolver nếu cần]
     D --> E[README + schema catalog]
-    E --> F[LLM lượt 2: SQL và mapping]
-    F --> G[Kiểm tra SQL chỉ đọc]
+    E --> F[LLM lượt 2: mapping, SQL và quyết định trả lời]
+    F --> K{Có đủ dữ liệu?}
+    K -->|unanswerable hoặc abstain| I[Answer formatter]
+    K -->|có| G[Kiểm tra SQL chỉ đọc]
     G --> H[Thực thi SQL]
     H --> I[Answer formatter]
     I --> J[Submission record]
 ```
 
-Lượt 1 mô tả phép tính, luật, khoảng thời gian, bộ lọc, đơn vị và kiểu đáp án. Lượt 2 nối kế hoạch với bảng/cột thật. Kết quả SQL được kiểm tra trước khi xuất đáp án.
+Lượt 1 chỉ trích xuất phép tính, luật, khoảng thời gian, bộ lọc, đơn vị và kiểu đáp án dự kiến. Nó không có `status` và không quyết định `unanswerable` hay `abstain`. Lượt 2 nối kế hoạch với bảng/cột thật rồi quyết định truy vấn, `unanswerable` hoặc `abstain`. Không có dòng khớp trong một kỳ có dữ liệu có thể cho kết quả 0; cần đối chiếu phạm vi dữ liệu trước khi quyết định. Kết quả SQL được kiểm tra trước khi xuất đáp án.
 
 ## 5. `answer` — định dạng và kiểm tra đáp án
 
@@ -75,7 +77,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    X[CLI: main.py --dataset --model --output --limit] --> A[Runner: test_inference]
+    X[CLI: main.py --dataset --model --runtime --output --limit] --> A[Runner: test_inference]
     A --> B[Đọc rulebook và calendar một lần thành ngữ cảnh chung]
     A --> C[Lấy câu hỏi tiếp theo từ questions.jsonl]
     C --> D[Chọn business_id và lấy README/catalog]
@@ -87,4 +89,4 @@ flowchart TD
     G --> C
 ```
 
-`main.py` là entrypoint duy nhất. `--dataset` trỏ đến thư mục gốc chứa `questions.jsonl`, `rulebook.md`, `calendar.csv` và `data/<business_id>/`. `--model` nhận đường dẫn model MLX; `--output` là đường dẫn JSONL; `--limit` giới hạn số câu khi thử nhanh. Rulebook và calendar được đọc một lần để dùng lại; runner chỉ ghi một dòng sau khi pipeline hoàn tất câu hỏi tương ứng. Lỗi ở một câu được ghi ra stderr và câu đó được đánh dấu `abstain`.
+`main.py` là entrypoint duy nhất. `--dataset` trỏ đến thư mục gốc chứa `questions.jsonl`, `rulebook.md`, `calendar.csv` và `data/<business_id>/`. `--model` nhận đường dẫn model tương thích với backend chọn bằng `--runtime` (`mlx` hoặc `vllm`); `--output` là đường dẫn JSONL; `--limit` giới hạn số câu khi thử nhanh. Rulebook và calendar được đọc một lần để dùng lại; runner chỉ ghi một dòng sau khi pipeline hoàn tất câu hỏi tương ứng. Lỗi ở một câu được ghi ra stderr và câu đó được đánh dấu `abstain`.
