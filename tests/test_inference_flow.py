@@ -1,4 +1,5 @@
 import json
+from importlib import import_module
 import sqlite3
 import tempfile
 import unittest
@@ -9,7 +10,8 @@ from openpyxl import Workbook
 from src.calendar import CalendarResolver
 from src.catalog import BusinessCatalog
 from src.pipeline import InferencePipeline
-from src.test_inference import run_dataset
+
+run_dataset = import_module("src.test-inference").run_dataset
 
 
 class FakeLLM:
@@ -31,7 +33,10 @@ class InferenceFlowTests(unittest.TestCase):
             dataset = Path(root) / "dataset"
             business = dataset / "data" / "biz_1"
             business.mkdir(parents=True)
-            (dataset / "rulebook.md").write_text("Doanh thu là tổng tiền.", encoding="utf-8")
+            (dataset / "rulebook.md").write_text(
+                "Doanh thu là tổng tiền.\n## 9. Đáp án và chấm điểm\nGiữ toàn bộ luật.\n",
+                encoding="utf-8",
+            )
             (dataset / "calendar.csv").write_text(
                 "date,weekday,lunar_day,lunar_month,lunar_year,lunar_leap,holiday\n"
                 "2026-01-01,4,13,11,2025,false,\n", encoding="utf-8")
@@ -45,6 +50,28 @@ class InferenceFlowTests(unittest.TestCase):
             self.assertEqual(count, 1)
             self.assertEqual(json.loads(output.read_text()), {"id": "q1", "type": "number", "answer": 350})
             self.assertEqual(len(fake.calls), 2)
+            self.assertIn("## 9. Đáp án và chấm điểm", fake.calls[0][1]["content"])
+
+    def test_gpu_oom_is_fatal_not_abstain(self):
+        class FailingPipeline:
+            def run(self, *args):
+                raise RuntimeError("[METAL] Insufficient Memory")
+
+        with tempfile.TemporaryDirectory() as root:
+            dataset = Path(root) / "dataset"
+            dataset.mkdir()
+            (dataset / "rulebook.md").write_text("rules", encoding="utf-8")
+            (dataset / "calendar.csv").write_text(
+                "date,weekday,lunar_day,lunar_month,lunar_year,lunar_leap,holiday\n",
+                encoding="utf-8",
+            )
+            (dataset / "questions.jsonl").write_text(json.dumps({
+                "id": "q1", "business_id": "biz_1", "question": "?", "as_of_date": "2026-01-01",
+            }) + "\n", encoding="utf-8")
+            output = Path(root) / "submission.jsonl"
+            with self.assertRaisesRegex(RuntimeError, "GPU hết bộ nhớ"):
+                run_dataset(dataset, output, FailingPipeline())
+            self.assertEqual(output.read_text(), "")
 
     def test_catalog_reads_excel_sqlite_and_rejects_write_sql(self):
         with tempfile.TemporaryDirectory() as root:

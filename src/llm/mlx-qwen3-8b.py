@@ -39,17 +39,22 @@ class MLXLLM(BaseLLM):
 
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
+        import mlx.core as mx
 
         prompt = self.tokenizer.apply_chat_template(
             [dict(message) for message in messages],
             tokenize=False,
             add_generation_prompt=True,
         )
-        return generate(
-            self.model,
-            self.tokenizer,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            sampler=make_sampler(temp=temperature),
-            verbose=False,
-        )
+        try:
+            return generate(
+                self.model,
+                self.tokenizer,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                sampler=make_sampler(temp=temperature),
+                prefill_step_size=256,
+                verbose=False,
+            )
+        finally:
+            mx.clear_cache()

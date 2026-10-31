@@ -38,20 +38,31 @@ def run_dataset(
                 business_id = question["business_id"]
                 trace = None
                 try:
-                    if business_id not in catalogs:
-                        business_dir = dataset / "data" / business_id
-                        if not business_dir.is_dir():
-                            raise FileNotFoundError(f"missing business directory: {business_dir}")
-                        catalogs[business_id] = BusinessCatalog(
-                            business_dir, Path(temp_dir) / f"{business_id}.duckdb"
-                        )
-                    result = pipeline.run(question, rulebook, calendar, catalogs[business_id])
+                    def get_catalog() -> BusinessCatalog:
+                        if business_id not in catalogs:
+                            business_dir = dataset / "data" / business_id
+                            if not business_dir.is_dir():
+                                raise FileNotFoundError(f"missing business directory: {business_dir}")
+                            catalogs[business_id] = BusinessCatalog(
+                                business_dir, Path(temp_dir) / f"{business_id}.duckdb"
+                            )
+                        return catalogs[business_id]
+
+                    result = pipeline.run(question, rulebook, calendar, get_catalog)
                     record, trace = result.record, result.trace
                 except Exception as exc:
                     print(f"{question_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
-                    record = format_answer(question_id, "abstain")
                     trace = getattr(exc, "trace", {"question_id": question_id})
                     trace["error"] = f"{type(exc).__name__}: {exc}"
+                    if "Insufficient Memory" in str(exc) or "OutOfMemory" in str(exc):
+                        if debug_dir is not None:
+                            (debug_dir / f"{question_id}.json").write_text(
+                                json.dumps(trace, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+                            )
+                        raise RuntimeError(
+                            "GPU hết bộ nhớ khi inference; cần model nhỏ hơn hoặc máy có nhiều bộ nhớ hơn"
+                        ) from exc
+                    record = format_answer(question_id, "abstain")
                 target.write(to_json_line(record))
                 target.flush()
                 if debug_dir is not None:

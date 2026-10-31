@@ -1,11 +1,13 @@
 """CLI entrypoint for offline DataMate inference."""
 
 import argparse
+from importlib import import_module
 from pathlib import Path
 
 from src.llm import MLXLLM
 from src.pipeline import InferencePipeline
-from src.test_inference import run_dataset
+
+run_dataset = import_module("src.test-inference").run_dataset
 
 
 def main() -> None:

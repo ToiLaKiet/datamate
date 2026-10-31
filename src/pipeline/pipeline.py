@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from src.answer import format_answer
@@ -44,10 +45,13 @@ class InferencePipeline:
         self.max_tokens = max_tokens
 
     def run(self, question: dict[str, Any], rulebook: str,
-            calendar: CalendarResolver, catalog: BusinessCatalog) -> PipelineResult:
+            calendar: CalendarResolver,
+            catalog: BusinessCatalog | Callable[[], BusinessCatalog]) -> PipelineResult:
         question_id = question["id"]
         trace: dict[str, Any] = {"question_id": question_id}
-        first = self.llm.infer([
+        trace["rulebook_chars"] = len(rulebook)
+        try:
+            first = self.llm.infer([
             {"role": "system", "content": (
                 "Bạn phân tích câu hỏi dữ liệu doanh nghiệp. Chỉ trả một JSON object NGẮN GỌN, tối đa 700 ký tự; "
                 "không tạo SQL, không đoán đáp án. Mỗi trường chỉ ghi thông tin có căn cứ, không giải thích dài. "
@@ -63,7 +67,10 @@ class InferencePipeline:
             {"role": "user", "content": (
                 f"Câu hỏi: {question['question']}\nas_of_date: {question['as_of_date']}\n\nRulebook:\n{rulebook}"
             )},
-        ], max_tokens=self.max_tokens, temperature=0.0)
+            ], max_tokens=self.max_tokens, temperature=0.0)
+        except RuntimeError as exc:
+            trace["failed_stage"] = "stage1"
+            raise PipelineFailure(str(exc), trace) from exc
         trace["stage1_raw"] = first
         try:
             plan = _json_object(first, {"status", "answer_type"})
@@ -78,7 +85,11 @@ class InferencePipeline:
             plan["resolved_calendar_window"] = calendar.resolve(plan["calendar_request"])
             trace["calendar"] = plan["resolved_calendar_window"]
 
-        second = self.llm.infer([
+        if callable(catalog):
+            catalog = catalog()
+
+        try:
+            second = self.llm.infer([
             {"role": "system", "content": (
                 "Bạn lập truy vấn DuckDB. Chỉ trả một JSON object. Dùng kế hoạch, README và schema thật để chọn bảng/cột. "
                 "Chỉ tạo một SELECT hoặc WITH...SELECT; không gọi hàm đọc file hay sửa bảng. Tất cả cột dữ liệu là VARCHAR: "
@@ -93,7 +104,10 @@ class InferencePipeline:
                 "Kế hoạch:\n" + json.dumps(plan, ensure_ascii=False) + "\n\n"
                 "README công ty:\n" + catalog.readme + "\n\nSchema SQL:\n" + catalog.describe()
             )},
-        ], max_tokens=self.max_tokens, temperature=0.0)
+            ], max_tokens=self.max_tokens, temperature=0.0)
+        except RuntimeError as exc:
+            trace["failed_stage"] = "stage2"
+            raise PipelineFailure(str(exc), trace) from exc
         trace["stage2_raw"] = second
         try:
             sql_plan = _json_object(second, {"status"})
