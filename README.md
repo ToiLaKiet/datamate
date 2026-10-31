@@ -20,3 +20,16 @@ uv run --group mlx python your_script.py
 ```
 
 Nhóm `mlx` dành cho inference trên Mac. Backend CUDA dùng khi đóng gói Docker sẽ có dependencies riêng.
+
+Chạy thử pipeline trên 1 câu train (không mở API server):
+
+```bash
+uv run --group mlx python -m src.main \
+  --dataset data/train \
+  --model data/models/DeepSeek-R1-0528-Qwen3-8B-4bit \
+  --output /tmp/datamate-submission.jsonl \
+  --debug-dir /tmp/datamate-debug \
+  --limit 1
+```
+
+`--debug-dir` lưu kế hoạch hai lượt LLM, SQL và thông tin kết quả để kiểm tra lỗi. Runner ghi đáp án sau từng câu; nếu một câu lỗi, nó ghi `abstain` và tiếp tục.

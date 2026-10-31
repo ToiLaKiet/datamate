@@ -1,6 +1,6 @@
 # DataMate — luồng inference dự kiến
 
-Tài liệu này mô tả ranh giới module. `llm` và `answer` đã có code; các module còn lại là kế hoạch triển khai. Khi một module được viết, cập nhật sơ đồ của module đó cùng code.
+Tài liệu này mô tả ranh giới các module của bản chạy thử. Các module trong sơ đồ đã có code; độ chính xác của hai lượt lập kế hoạch LLM cần được đo trên bộ train.
 
 ## 1. `llm` — gọi model
 
@@ -28,7 +28,7 @@ flowchart LR
     E --> H[SQL executor chạy truy vấn]
 ```
 
-“Bảng SQL tạm” nghĩa là chương trình đọc các file CSV/Excel/SQLite của một công ty và tạo bảng để truy vấn bằng SQL ngay trong tiến trình inference. Đây không phải database server hay nơi lưu dữ liệu lâu dài. Mỗi công ty chỉ nạp một lần trong một phiên chạy. Catalog giữ liên hệ từ bảng SQL về file và sheet gốc để có thể kiểm tra truy vấn. Engine SQL cụ thể sẽ được chọn khi triển khai catalog.
+“Bảng SQL tạm” nghĩa là chương trình đọc các file CSV/Excel/SQLite của một công ty và tạo bảng DuckDB để truy vấn ngay trong tiến trình inference. Đây không phải database server hay nơi lưu dữ liệu lâu dài. Mỗi công ty chỉ nạp một lần trong một phiên chạy. Catalog giữ liên hệ từ bảng SQL về file và sheet gốc để có thể kiểm tra truy vấn. Database tạm nằm ngoài dataset và được xóa sau phiên chạy.
 
 ## 3. `calendar` — giải nghĩa thời gian âm lịch
 
@@ -87,4 +87,4 @@ flowchart TD
     G --> C
 ```
 
-`main.py` là entrypoint duy nhất. `--dataset` trỏ đến thư mục gốc chứa `questions.jsonl`, `rulebook.md`, `calendar.csv` và `data/<business_id>/`. `--model` nhận đường dẫn model; `--output` là đường dẫn JSONL; `--limit` giới hạn số câu khi thử nhanh. Rulebook và calendar được đọc một lần để dùng lại; runner chỉ ghi một dòng sau khi pipeline hoàn tất câu hỏi tương ứng. CLI và runner hiện chưa được triển khai.
+`main.py` là entrypoint duy nhất. `--dataset` trỏ đến thư mục gốc chứa `questions.jsonl`, `rulebook.md`, `calendar.csv` và `data/<business_id>/`. `--model` nhận đường dẫn model MLX; `--output` là đường dẫn JSONL; `--limit` giới hạn số câu khi thử nhanh. Rulebook và calendar được đọc một lần để dùng lại; runner chỉ ghi một dòng sau khi pipeline hoàn tất câu hỏi tương ứng. Lỗi ở một câu được ghi ra stderr và câu đó được đánh dấu `abstain`.

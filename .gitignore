@@ -1,3 +1,4 @@
 data
 donotcommit-notebooks
 .venv/
+__pycache__

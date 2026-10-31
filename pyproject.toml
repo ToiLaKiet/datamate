@@ -3,7 +3,7 @@ name = "datamate"
 version = "0.1.0"
 description = "Offline question answering over structured business data"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = ["duckdb>=1.4", "openpyxl>=3.1", "sqlglot>=27"]
 
 [dependency-groups]
 mlx = ["mlx-lm>=0.31.3"]
