@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--max-model-len", type=int, default=16384, help="vLLM context limit in tokens")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85, help="vLLM GPU memory fraction")
     parser.add_argument("--tensor-parallel-size", type=int, default=1, help="Number of NVIDIA GPUs for vLLM")
+    parser.add_argument("--quantization", help="vLLM quantization method, e.g. modelopt_fp4")
     parser.add_argument("--output", type=Path, default=Path("submission.jsonl"))
     parser.add_argument("--limit", type=int, help="Process only the first N questions")
     parser.add_argument("--max-tokens", type=int, default=2048, help="Generation cap for each LLM stage")
@@ -30,6 +31,7 @@ def main() -> None:
             max_model_len=args.max_model_len,
             gpu_memory_utilization=args.gpu_memory_utilization,
             tensor_parallel_size=args.tensor_parallel_size,
+            quantization=args.quantization,
         )
     else:
         llm = MLXLLM(args.model)

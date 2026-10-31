@@ -49,3 +49,5 @@ uv run --locked --group cuda python -m src.main \
 ```
 
 `--tensor-parallel-size 2` dùng hai GPU nếu model cần chia weights. `--max-model-len` (mặc định 16384) và `--gpu-memory-utilization` (mặc định 0.85) điều chỉnh giới hạn context và phần VRAM mà vLLM sử dụng. Model truyền qua `--model` phải ở định dạng vLLM hỗ trợ; thư mục `data/models/DeepSeek-R1-0528-Qwen3-8B-4bit` là bản quant MLX nên không dùng trực tiếp cho vLLM. Không cần chạy API server.
+
+Với checkpoint ModelOpt NVFP4, thêm `--quantization modelopt_fp4` vào lệnh chạy vLLM.

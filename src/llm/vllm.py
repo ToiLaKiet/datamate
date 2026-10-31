@@ -15,6 +15,7 @@ class VLLMLLM(BaseLLM):
         max_model_len: int = 16384,
         gpu_memory_utilization: float = 0.85,
         tensor_parallel_size: int = 1,
+        quantization: str | None = None,
     ) -> None:
         if not model_id:
             raise ValueError("model_id must not be empty")
@@ -41,6 +42,7 @@ class VLLMLLM(BaseLLM):
             gpu_memory_utilization=gpu_memory_utilization,
             tensor_parallel_size=tensor_parallel_size,
             dtype="auto",
+            quantization=quantization,
         )
 
     def infer(

@@ -1,10 +1,7 @@
 """Local language model inference backends."""
 
-from importlib import import_module
-
 from .base import BaseLLM
+from .mlx import MLXLLM
 from .vllm import VLLMLLM
-
-MLXLLM = import_module(".mlx-qwen3-8b", __name__).MLXLLM
 
 __all__ = ["BaseLLM", "MLXLLM", "VLLMLLM"]

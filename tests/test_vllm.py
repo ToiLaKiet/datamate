@@ -35,6 +35,7 @@ class VLLMLLMTests(unittest.TestCase):
             backend = VLLMLLM(
                 "/models/chat", max_model_len=8192,
                 gpu_memory_utilization=0.8, tensor_parallel_size=2,
+                quantization="modelopt_fp4",
             )
             messages = [{"role": "user", "content": "Xin chào"}]
             self.assertEqual(backend.infer(messages, max_tokens=32, temperature=0), "answer")
@@ -44,7 +45,7 @@ class VLLMLLMTests(unittest.TestCase):
         self.assertEqual(instances[0].options, {
             "model": "/models/chat", "max_model_len": 8192,
             "gpu_memory_utilization": 0.8, "tensor_parallel_size": 2,
-            "dtype": "auto",
+            "dtype": "auto", "quantization": "modelopt_fp4",
         })
         self.assertEqual(len(instances[0].calls), 2)
         self.assertEqual(instances[0].calls[0][0], [messages])
@@ -66,6 +67,7 @@ class VLLMLLMTests(unittest.TestCase):
             "datamate", "--dataset", "data/train", "--model", "/models/chat",
             "--runtime", "vllm", "--max-model-len", "8192",
             "--gpu-memory-utilization", "0.8", "--tensor-parallel-size", "2",
+            "--quantization", "modelopt_fp4",
         ]
         with patch.object(sys, "argv", argv), \
              patch("src.main.VLLMLLM") as backend, \
@@ -76,6 +78,7 @@ class VLLMLLMTests(unittest.TestCase):
         backend.assert_called_once_with(
             "/models/chat", max_model_len=8192,
             gpu_memory_utilization=0.8, tensor_parallel_size=2,
+            quantization="modelopt_fp4",
         )
         mlx_backend.assert_not_called()
         self.assertEqual(runner.call_count, 1)
