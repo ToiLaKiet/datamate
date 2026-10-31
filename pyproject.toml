@@ -1,0 +1,12 @@
+[project]
+name = "datamate"
+version = "0.1.0"
+description = "Offline question answering over structured business data"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+mlx = ["mlx-lm>=0.31.3"]
+
+[tool.uv]
+package = false
