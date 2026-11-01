@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 from sqlglot import exp, parse
 from sqlglot.dialects.duckdb import DuckDB
 from sqlglot.errors import SqlglotError
+from sqlglot.tokens import TokenType
 
 
 _MAX_UNIQUE_VALUES = 32
@@ -28,6 +29,40 @@ class _DuckDBWithBackticks(DuckDB):
 
 def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def _quote_unquoted_columns(sql: str, columns: Iterable[str]) -> str:
+    """Quote exact multiword schema names without touching SQL string literals."""
+    tokenizer = _DuckDBWithBackticks.Tokenizer()
+    try:
+        tokens = tokenizer.tokenize(sql)
+    except SqlglotError:
+        return sql
+    matches: list[tuple[int, int, str]] = []
+    for column in sorted(set(columns), key=len, reverse=True):
+        if " " not in column:
+            continue
+        try:
+            name_tokens = tokenizer.tokenize(column)
+        except SqlglotError:
+            continue
+        width = len(name_tokens)
+        if width < 2 or any(token.token_type != TokenType.VAR for token in name_tokens):
+            continue
+        for index in range(len(tokens) - width + 1):
+            group = tokens[index:index + width]
+            if any(token.token_type != TokenType.VAR for token in group):
+                continue
+            start, end = group[0].start, group[-1].end + 1
+            if sql[start:end].casefold() == column.casefold():
+                matches.append((start, end, column))
+    selected: list[tuple[int, int, str]] = []
+    for start, end, column in sorted(matches, key=lambda item: (item[0], -(item[1] - item[0]))):
+        if not selected or start >= selected[-1][1]:
+            selected.append((start, end, column))
+    for start, end, column in reversed(selected):
+        sql = sql[:start] + _quote(column) + sql[end:]
+    return sql
 
 
 def _table_name(path: Path, source_table: str | None = None) -> str:
@@ -288,6 +323,49 @@ class BusinessCatalog:
             result.update({"samples": [row[0] for row in samples], "parsed_after_removing_commas": parsed[0],
                            "with_comma": parsed[1], "with_dot": parsed[2]})
         return result
+
+    def normalize_sql(self, sql: str, profiles: list[dict[str, Any]]) -> str:
+        """Apply only schema and profile backed fixes to model-generated SQL."""
+        columns = (column for info in self.tables.values() for column in info["columns"])
+        quoted_sql = _quote_unquoted_columns(sql, columns)
+        try:
+            statements = parse(quoted_sql, read=_DuckDBWithBackticks)
+        except SqlglotError:
+            return quoted_sql
+        if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+            return quoted_sql
+        query = statements[0]
+        tables = [table.name.casefold() for table in query.find_all(exp.Table)]
+        if len(tables) != 1:
+            return quoted_sql
+        changed = False
+        for cast in list(query.find_all(exp.Cast)):
+            if (not isinstance(cast.this, exp.Column)
+                    or cast.args.get("to") is None
+                    or cast.args["to"].this != exp.DataType.Type.DATE):
+                continue
+            matches = [profile for profile in profiles
+                       if profile.get("kind") == "date"
+                       and str(profile.get("table", "")).casefold() == tables[0]
+                       and str(profile.get("column", "")).casefold() == cast.this.name.casefold()
+                       and profile.get("parsed", 0) == profile.get("non_null")
+                       and profile.get("parsed", 0) > 0]
+            if len(matches) != 1:
+                continue
+            samples = matches[0].get("samples") or matches[0].get("unique_values") or []
+            if samples and all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(sample)) for sample in samples):
+                continue
+            column = cast.this.sql(dialect="duckdb")
+            parsed_date = (
+                f"COALESCE(TRY_CAST({column} AS DATE), "
+                f"TRY_STRPTIME({column}, '%d/%m/%Y')::DATE, "
+                f"TRY_STRPTIME({column}, '%d-%m-%Y')::DATE, "
+                f"TRY_STRPTIME({column} || '/' || "
+                f"REGEXP_EXTRACT(\"__sheet\", '(20[0-9]{{2}})', 1), '%d/%m/%Y')::DATE)"
+            )
+            cast.replace(parse(parsed_date, read=_DuckDBWithBackticks)[0])
+            changed = True
+        return query.sql(dialect="duckdb") if changed else quoted_sql
 
     def execute(self, sql: str, *, max_rows: int = 1000) -> tuple[list[str], list[tuple[Any, ...]]]:
         try:

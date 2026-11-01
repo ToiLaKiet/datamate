@@ -15,6 +15,14 @@ from src.llm.base import BaseLLM
 from .schemas import PLAN_OUTPUT_SCHEMA, SQL_OUTPUT_SCHEMA
 
 
+WINDOW_REPAIR_SCHEMA = {
+    "type": "object",
+    "properties": {"start": {"type": "string"}, "end": {"type": "string"}},
+    "required": ["start", "end"],
+    "additionalProperties": False,
+}
+
+
 def _json_object(text: str, required: set[str]) -> dict[str, Any]:
     decoder = json.JSONDecoder()
     candidates = []
@@ -31,18 +39,26 @@ def _json_object(text: str, required: set[str]) -> dict[str, Any]:
     return candidates[-1]
 
 
-def _validate_window(window: Any, label: str) -> None:
+class InvalidPlanWindow(ValueError):
+    def __init__(self, field: str, index: int | None, detail: str) -> None:
+        self.field = field
+        self.index = index
+        label = f"{field}[{index}]" if index is not None else field
+        super().__init__(f"{label} {detail}")
+
+
+def _validate_window(window: Any, field: str, index: int | None = None) -> None:
     if not isinstance(window, dict):
-        raise ValueError(f"{label} must have start and end dates")
+        raise InvalidPlanWindow(field, index, "must have start and end dates")
     try:
         start = date.fromisoformat(window["start"])
         end = date.fromisoformat(window["end"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"{label} must use real YYYY-MM-DD dates") from exc
+        raise InvalidPlanWindow(field, index, "must use real YYYY-MM-DD dates") from exc
     if start.isoformat() != window["start"] or end.isoformat() != window["end"]:
-        raise ValueError(f"{label} must use YYYY-MM-DD dates")
+        raise InvalidPlanWindow(field, index, "must use YYYY-MM-DD dates")
     if start > end:
-        raise ValueError(f"{label} start must not be after end")
+        raise InvalidPlanWindow(field, index, "start must not be after end")
 
 
 def _validate_plan(plan: dict[str, Any]) -> None:
@@ -56,7 +72,7 @@ def _validate_plan(plan: dict[str, Any]) -> None:
     if not isinstance(comparisons, list):
         raise ValueError("comparison_windows must be an array")
     for index, window in enumerate(comparisons):
-        _validate_window(window, f"comparison_windows[{index}]")
+        _validate_window(window, "comparison_windows", index)
 
 
 def _add_missing_filter_profiles(plan: dict[str, Any], catalog: BusinessCatalog) -> list[dict[str, str]]:
@@ -186,30 +202,52 @@ class InferencePipeline:
             trace["failed_stage"] = "stage1"
             raise PipelineFailure(str(exc), trace) from exc
         trace["stage1_raw"] = first
-        for attempt in range(2):
+        try:
+            plan = _json_object(first, set(PLAN_OUTPUT_SCHEMA["required"]))
+        except ValueError as exc:
+            raise PipelineFailure(str(exc), trace) from exc
+        try:
+            _validate_plan(plan)
+        except InvalidPlanWindow as exc:
+            trace["stage1_validation_error"] = str(exc)
+            original = (plan["time_window"] if exc.index is None
+                        else plan["comparison_windows"][exc.index])
+            repair_context = {
+                "metric": plan.get("metric"), "definitions": plan.get("definitions"),
+                "filters": plan.get("filters"), "window_to_fix": original,
+            }
             try:
-                plan = _json_object(first, set(PLAN_OUTPUT_SCHEMA["required"]))
+                fixed_text = self.llm.infer([
+                    {"role": "system", "content": (
+                        "Chỉ sửa start/end của khoảng ngày lỗi. Dùng câu hỏi, as_of_date và rulebook; "
+                        "giữ nguyên mọi phần khác của kế hoạch. Trả đúng một JSON object gồm start và end "
+                        "là ngày thật dạng YYYY-MM-DD, start <= end."
+                    )},
+                    {"role": "user", "content": (
+                        f"Câu hỏi: {question['question']}\nas_of_date: {question['as_of_date']}\n\n"
+                        f"Rulebook:\n{rulebook}\n\nLỗi: {exc}\n\n"
+                        "Thông tin kế hoạch liên quan:\n"
+                        + json.dumps(repair_context, ensure_ascii=False)
+                    )},
+                ], max_tokens=min(self.max_tokens, 2048), temperature=0.0,
+                    output_schema=WINDOW_REPAIR_SCHEMA,
+                    thinking_token_budget=self._thinking_budget(self.stage1_thinking_tokens))
+                trace["stage1_repair_raw"] = fixed_text
+                print("Stage 1 window repair output:", fixed_text)
+                fixed_window = _json_object(fixed_text, {"start", "end"})
+                _validate_window(fixed_window, exc.field, exc.index)
+                if exc.index is None:
+                    plan["time_window"] = fixed_window
+                else:
+                    plan["comparison_windows"][exc.index] = {
+                        **(original if isinstance(original, dict) else {}), **fixed_window,
+                    }
                 _validate_plan(plan)
-                break
-            except ValueError as exc:
-                trace["stage1_validation_error"] = str(exc)
-                if attempt:
-                    raise PipelineFailure(str(exc), trace) from exc
-                try:
-                    first = self.llm.infer(first_messages + [{"role": "user", "content": (
-                        "Kế hoạch vừa tạo không hợp lệ: " + str(exc) + ". "
-                        "Hãy lập lại toàn bộ kế hoạch từ câu hỏi và as_of_date; "
-                        "mọi khoảng thời gian phải có start/end là ngày thật dạng YYYY-MM-DD, start <= end. "
-                        "Nếu điều kiện lọc phụ thuộc giá trị của cột, hãy yêu cầu profile cột đó. "
-                        "Chỉ trả một JSON object theo cùng schema."
-                    )}], max_tokens=self.max_tokens, temperature=0.0,
-                        output_schema=PLAN_OUTPUT_SCHEMA,
-                        thinking_token_budget=self._thinking_budget(self.stage1_thinking_tokens))
-                    trace["stage1_repair_raw"] = first
-                    print("Stage 1 repair output:", first)
-                except RuntimeError as repair_exc:
-                    trace["failed_stage"] = "stage1_repair"
-                    raise PipelineFailure(str(repair_exc), trace) from repair_exc
+            except (RuntimeError, ValueError) as repair_exc:
+                trace["stage1_repair_error"] = str(repair_exc)
+                raise PipelineFailure(str(repair_exc), trace) from repair_exc
+        except ValueError as exc:
+            raise PipelineFailure(str(exc), trace) from exc
         auto_profiles = _add_missing_filter_profiles(plan, catalog)
         if auto_profiles:
             trace["auto_profile_requests"] = auto_profiles
@@ -372,7 +410,13 @@ class InferencePipeline:
         answer_type = sql_plan.get("answer_type") or plan.get("answer_type")
         if answer_type not in ("number", "percent", "string", "date", "boolean", "list", "table"):
             raise ValueError("stage 2 must choose a concrete answer type when status is ok")
-        columns, rows = catalog.execute(sql_plan["sql"])
+        sql = sql_plan["sql"]
+        if hasattr(catalog, "normalize_sql"):
+            sql = catalog.normalize_sql(sql, profiles)
+            if sql != sql_plan["sql"]:
+                trace["normalized_sql"] = sql
+                print("SQL normalized from schema/profile:", sql)
+        columns, rows = catalog.execute(sql)
         trace["sql_result"] = {"columns": columns, "row_count": len(rows), "preview": rows[:3]}
         if answer_type == "table":
             value: Any = {"columns": columns, "rows": rows}

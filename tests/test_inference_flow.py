@@ -143,14 +143,15 @@ class InferenceFlowTests(unittest.TestCase):
                 {"id": "q-missing", "question": "Doanh thu?", "as_of_date": "2026-01-01"},
                 "rulebook", None, MinimalCatalog(),
             )
-        self.assertEqual(llm.calls, 2)
+        self.assertEqual(llm.calls, 1)
 
     def test_invalid_stage_one_window_gets_one_repair(self):
         class RepairLLM:
             def __init__(self):
                 self.responses = iter([
-                    _plan(time_window={"start": "2026-09-01", "end": "2026-2026-09-07"}),
-                    _plan(time_window={"start": "2026-09-01", "end": "2026-09-07"}),
+                    _plan(time_window={"start": "2026-09-01", "end": "2026-2026-09-07"},
+                          profile_requests=[{"table": "t_csv_orders", "column": "Tiền", "kind": "numeric"}]),
+                    {"start": "2026-09-01", "end": "2026-09-07"},
                     {"status": "abstain", "answer_type": "abstain", "sql": None},
                 ])
                 self.calls = 0
@@ -172,6 +173,8 @@ class InferenceFlowTests(unittest.TestCase):
         )
         self.assertEqual(llm.calls, 3)
         self.assertEqual(result.trace["stage1"]["time_window"]["end"], "2026-09-07")
+        self.assertEqual(result.trace["stage1"]["profile_requests"], [
+            {"table": "t_csv_orders", "column": "Tiền", "kind": "numeric"}])
         self.assertIn("stage1_repair_raw", result.trace)
 
     def test_filter_column_omitted_from_requests_is_profiled(self):
@@ -204,6 +207,52 @@ class InferenceFlowTests(unittest.TestCase):
                 {"table": "t_csv_orders", "column": "Trạng thái", "kind": "categorical"}])
             status = next(item for item in result.trace["profiles"] if item["column"] == "Trạng thái")
             self.assertEqual(status["unique_values"], ["Đã huỷ", "Đã nhập hàng"])
+
+    def test_schema_profile_normalize_generated_sql(self):
+        class SQLLLM:
+            def __init__(self):
+                self.calls = 0
+
+            def infer(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return json.dumps(_plan(
+                        number_kind="money",
+                        time_window={"start": "2026-09-01", "end": "2026-09-07"},
+                        profile_requests=[
+                            {"table": "t_csv_orders", "column": "Cần trả NCC", "kind": "numeric"},
+                            {"table": "t_csv_orders", "column": "Thời gian", "kind": "date"},
+                            {"table": "t_csv_orders", "column": "Trạng thái", "kind": "categorical"},
+                        ],
+                    ))
+                return json.dumps({
+                    "status": "ok", "answer_type": "number", "number_kind": "money",
+                    "sql": ("SELECT SUM(CAST(REPLACE(Cần trả NCC, ',', '') AS BIGINT)) "
+                            "FROM t_csv_orders WHERE TRY_CAST(Thời gian AS DATE) "
+                            "BETWEEN '2026-09-01' AND '2026-09-07' "
+                            "AND Trạng thái = 'Đã nhập hàng'"),
+                })
+
+        with tempfile.TemporaryDirectory() as root:
+            business = Path(root) / "biz"
+            business.mkdir()
+            (business / "README.md").write_text("Danh sách phiếu nhập.", encoding="utf-8")
+            (business / "orders.csv").write_text(
+                'Thời gian,Cần trả NCC,Trạng thái\n'
+                '01/09/2026,"1,000",Đã nhập hàng\n'
+                '02/09/2026,"2,000",Đã huỷ\n', encoding="utf-8")
+            catalog = BusinessCatalog(business, Path(root) / "catalog.duckdb")
+            llm = SQLLLM()
+            result = InferencePipeline(llm).run(
+                {"id": "q-normalize", "question": "Tiền nhập tháng này?",
+                 "as_of_date": "2026-09-07"}, "rulebook", None, catalog,
+            )
+            self.assertEqual(result.record, {"id": "q-normalize", "type": "number", "answer": 1000})
+            self.assertEqual(llm.calls, 2)
+            self.assertIn('"Cần trả NCC"', result.trace["normalized_sql"])
+            self.assertIn('TRY_STRPTIME("Thời gian"', result.trace["normalized_sql"])
+            self.assertEqual(catalog.normalize_sql("SELECT 'Cần trả NCC' AS label FROM t_csv_orders", []),
+                             "SELECT 'Cần trả NCC' AS label FROM t_csv_orders")
 
     def test_profile_is_targeted_and_handles_real_values(self):
         with tempfile.TemporaryDirectory() as root:
