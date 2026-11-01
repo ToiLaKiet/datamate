@@ -70,5 +70,6 @@ def run_dataset(
                         json.dumps(trace, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
                     )
                 processed += 1
-                print(f"{processed}: {question_id} -> {record['type']}", file=sys.stderr)
+                detail = f" => {record['answer']}" if "answer" in record else ""
+                print(f"{processed}: {question_id} -> {record['type']}{detail}", file=sys.stderr)
     return processed

@@ -2,3 +2,5 @@ data
 donotcommit-notebooks
 .venv/
 __pycache__
+*.json 
+*.jsonl

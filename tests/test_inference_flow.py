@@ -9,7 +9,7 @@ from openpyxl import Workbook
 
 from src.calendar import CalendarResolver
 from src.catalog import BusinessCatalog
-from src.pipeline import InferencePipeline
+from src.pipeline import InferencePipeline, PipelineResult
 from src.pipeline.pipeline import PipelineFailure
 from src.pipeline.schemas import PLAN_OUTPUT_SCHEMA, SQL_OUTPUT_SCHEMA
 
@@ -121,6 +121,32 @@ class InferenceFlowTests(unittest.TestCase):
                                                "thinking_token_budget": 1024})
             self.assertEqual(fake.options[1], {"output_schema": SQL_OUTPUT_SCHEMA,
                                                "thinking_token_budget": 2048})
+
+    def test_runner_keeps_writing_after_abstain(self):
+        class StubPipeline:
+            def run(self, question, *args):
+                record = ({"id": question["id"], "type": "abstain"}
+                          if question["id"] == "q1" else
+                          {"id": question["id"], "type": "number", "answer": 5})
+                return PipelineResult(record, {})
+
+        with tempfile.TemporaryDirectory() as root:
+            dataset = Path(root) / "dataset"
+            dataset.mkdir()
+            (dataset / "rulebook.md").write_text("rulebook", encoding="utf-8")
+            (dataset / "calendar.csv").write_text("date,lunar_day,lunar_month,lunar_year,lunar_leap\n",
+                                                  encoding="utf-8")
+            (dataset / "questions.jsonl").write_text(
+                json.dumps({"id": "q1", "business_id": "biz", "question": "?",
+                            "as_of_date": "2026-01-01"}) + "\n"
+                + json.dumps({"id": "q2", "business_id": "biz", "question": "?",
+                              "as_of_date": "2026-01-01"}) + "\n", encoding="utf-8")
+            output = Path(root) / "submissions" / "result.jsonl"
+            self.assertEqual(run_dataset(dataset, output, StubPipeline()), 2)
+            self.assertEqual([json.loads(line) for line in output.read_text().splitlines()], [
+                {"id": "q1", "type": "abstain"},
+                {"id": "q2", "type": "number", "answer": 5},
+            ])
 
     def test_stage_one_rejects_missing_profile_requests(self):
         class IncompleteLLM:

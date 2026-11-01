@@ -195,9 +195,9 @@ class InferencePipeline:
                 output_schema=PLAN_OUTPUT_SCHEMA,
                 thinking_token_budget=self._thinking_budget(self.stage1_thinking_tokens),
             )
-            print("Stage 1 inference returned (plan unchecked)")
-            print(first)
-            print("="*80)
+            # print("Stage 1 inference returned (plan unchecked)")
+            # print(first)
+            # print("="*80)
         except RuntimeError as exc:
             trace["failed_stage"] = "stage1"
             raise PipelineFailure(str(exc), trace) from exc
@@ -304,9 +304,9 @@ class InferencePipeline:
                 output_schema=SQL_OUTPUT_SCHEMA,
                 thinking_token_budget=self._thinking_budget(self.stage2_thinking_tokens),
             )
-            print("Stage 2 inference returned (SQL unchecked)")
-            print(second)
-            print("="*80)
+            # print("Stage 2 inference returned (SQL unchecked)")
+            # print(second)
+            # print("="*80)
         except RuntimeError as exc:
             trace["failed_stage"] = "stage2"
             raise PipelineFailure(str(exc), trace) from exc
@@ -315,7 +315,7 @@ class InferencePipeline:
             sql_plan = None
             try:
                 sql_plan = _json_object(second, {"status", "sql", "answer_type"})
-                print(f"Stage 2 parsed output: {sql_plan}")
+                # print(f"Stage 2 parsed output: {sql_plan}")
 
                 trace["stage2" if attempt == 0 else "repair"] = sql_plan
                 return self._finish(question_id, sql_plan, plan, catalog, profiles, trace)
@@ -345,7 +345,7 @@ class InferencePipeline:
                        output_schema=SQL_OUTPUT_SCHEMA,
                        thinking_token_budget=self._thinking_budget(self.stage2_thinking_tokens))
                     trace["repair_raw"] = second
-                    print(f"Stage 2 repair output: {second}")
+                    # print(f"Stage 2 repair output: {second}")
                 except RuntimeError as repair_exc:
                     trace["repair_error"] = str(repair_exc)
                     return PipelineResult(format_answer(question_id, "abstain"), trace)
@@ -415,7 +415,7 @@ class InferencePipeline:
             sql = catalog.normalize_sql(sql, profiles)
             if sql != sql_plan["sql"]:
                 trace["normalized_sql"] = sql
-                print("SQL normalized from schema/profile:", sql)
+                # print("SQL normalized from schema/profile:", sql)
         columns, rows = catalog.execute(sql)
         trace["sql_result"] = {"columns": columns, "row_count": len(rows), "preview": rows[:3]}
         if answer_type == "table":
