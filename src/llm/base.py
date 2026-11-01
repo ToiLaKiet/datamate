@@ -1,4 +1,4 @@
-"""Shared interface for local chat model backends."""
+"""Shared interface for chat model backends."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence

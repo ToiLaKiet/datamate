@@ -16,6 +16,7 @@ class VLLMLLM(BaseLLM):
         gpu_memory_utilization: float = 0.85,
         tensor_parallel_size: int = 1,
         quantization: str | None = None,
+        tokenizer_id: str | None = None,
     ) -> None:
         if not model_id:
             raise ValueError("model_id must not be empty")
@@ -36,14 +37,17 @@ class VLLMLLM(BaseLLM):
 
         self.model_id = model_id
         self._sampling_params = SamplingParams
-        self._llm = LLM(
-            model=model_id,
-            max_model_len=max_model_len,
-            gpu_memory_utilization=gpu_memory_utilization,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype="auto",
-            quantization=quantization,
-        )
+        options = {
+            "model": model_id,
+            "max_model_len": max_model_len,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "tensor_parallel_size": tensor_parallel_size,
+            "dtype": "auto",
+            "quantization": quantization,
+        }
+        if tokenizer_id is not None:
+            options["tokenizer"] = tokenizer_id
+        self._llm = LLM(**options)
 
     def infer(
         self,
@@ -69,3 +73,5 @@ class VLLMLLM(BaseLLM):
             use_tqdm=False,
         )
         return outputs[0].outputs[0].text
+
+
