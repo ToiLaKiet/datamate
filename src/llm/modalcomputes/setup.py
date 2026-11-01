@@ -72,11 +72,3 @@ if modal is not None:
             return self.backend.infer(
                 messages, max_tokens=max_tokens, temperature=temperature
             )
-
-    @app.local_entrypoint()
-    def main(model_id: str, prompt: str, max_tokens: int = 512) -> None:
-        messages = [{"role": "user", "content": prompt}]
-        result = RemoteVLLM(model_id=model_id).infer.remote(
-            messages, max_tokens=max_tokens
-        )
-        print(result)
