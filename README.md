@@ -32,7 +32,9 @@ uv run --group mlx python -m src.main \
   --limit 1
 ```
 
-`--debug-dir` lưu kế hoạch hai lượt LLM, SQL và thông tin kết quả để kiểm tra lỗi. Runner ghi đáp án sau từng câu; nếu một câu lỗi, nó ghi `abstain` và tiếp tục.
+`--debug-dir` lưu kế hoạch, profile các cột được chọn, SQL, kết quả kiểm tra và lượt sửa lỗi nếu có. Pipeline thường gọi LLM hai lượt; chỉ gọi lượt thứ ba khi SQL, kiểu đáp án hoặc bằng chứng `unanswerable` không qua kiểm tra. Runner ghi đáp án sau từng câu; nếu một câu lỗi, nó ghi `abstain` và tiếp tục.
+
+Hai lượt LLM dùng JSON Schema riêng. Với vLLM/Modal, schema được áp dụng ngay khi sinh; với MLX, pipeline kiểm tra JSON sau khi sinh. Model DeepSeek R1 trên vLLM có giới hạn reasoning mặc định 1024 token ở lượt 1 và 2048 token ở lượt 2 (cả lượt sửa). Có thể chỉnh bằng `--stage1-thinking-tokens` và `--stage2-thinking-tokens`; đặt 0 để bỏ giới hạn reasoning. `--max-tokens` (mặc định 4096) vẫn giới hạn toàn bộ token sinh gồm reasoning và JSON.
 
 ## Inference trên NVIDIA
 
@@ -63,7 +65,9 @@ uv run --with modal modal run -m src.llm.modalcomputes.setup \
   --prompt "Xin chào"
 ```
 
-`modal run` tạo app tạm thời, chạy một câu hỏi trên H100 và in câu trả lời.
+`modal run` tạo app tạm thời, chạy một câu hỏi trên H100 và in câu trả lời JSON. Lượt này kiểm tra cả JSON Schema và giới hạn reasoning 256 token.
+
+Modal tự tạo hai Volume `datamate-hf-cache` và `datamate-vllm-cache` (v2) để dùng lại model và cache vLLM qua các container. Lần chạy đầu vẫn cần tải model; các lần sau dùng cache đã lưu. Container có tối đa 15 phút để khởi tạo model.
 
 `--model-id` ở ví dụ là ID repo Hugging Face. vLLM tải model BF16 bên trong container Modal. Nếu truyền một path, path đó phải tồn tại **trong container** (ví dụ model CUDA đã tải lên Modal Volume và được mount vào container). Thư mục `data/models/DeepSeek-R1-0528-Qwen3-8B-4bit` chỉ nằm trên Mac và chứa bản MLX 4-bit nên không thể dùng trực tiếp làm path cho vLLM/CUDA trên Modal.
 
@@ -73,9 +77,11 @@ Muốn đăng ký app lâu dài để gọi từ chương trình khác:
 uv run --with modal modal deploy -m src.llm.modalcomputes.setup
 ```
 
+Sau khi đổi schema hoặc giới hạn reasoning trong code, cần deploy lại app Modal trước khi chạy `src.main --runtime modal`.
+
 Dùng `-m` vì `src.llm.modalcomputes.setup` là module có relative imports. Deployment đăng ký `RemoteVLLM` trên H100; truyền `model_id` là tên model tương thích vLLM khi gọi `RemoteVLLM(model_id="...").infer.remote(messages)`. Đây là Modal RPC, chưa có URL HTTP. `load()` chạy một lần cho mỗi container mới; `infer()` nhận nhiều lượt gọi trên container đó.
 
-Để chạy toàn bộ pipeline trên dữ liệu local và gửi hai lượt LLM đến app Modal đã deploy:
+Để chạy toàn bộ pipeline trên dữ liệu local và gửi các lượt LLM đến app Modal đã deploy:
 
 ```bash
 uv run --with modal python -m src.main \

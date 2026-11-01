@@ -1,6 +1,6 @@
 # DataMate — luồng inference dự kiến
 
-Tài liệu này mô tả ranh giới các module của bản chạy thử. Các module trong sơ đồ đã có code; độ chính xác của hai lượt lập kế hoạch LLM cần được đo trên bộ train.
+Tài liệu này mô tả ranh giới các module của bản chạy thử. Pipeline có ba bước xử lý với hai lượt LLM thông thường và một lượt sửa chỉ khi kiểm tra phát hiện lỗi. Độ chính xác cần được đo trên bộ train.
 
 ## 1. `llm` — gọi model
 
@@ -21,11 +21,13 @@ Pipeline chỉ cần một đối tượng tuân theo hợp đồng `BaseLLM.inf
 flowchart LR
     A[Thư mục business_id] --> B[Đọc README]
     A --> C[CSV / Excel / SQLite]
-    C --> D[Chuẩn hóa tên bảng và kiểu cột]
+    C --> D[Chuẩn hóa tên bảng và kiểu cột; giữ thứ tự dòng gốc]
     D --> E[Các bảng SQL tạm trong tiến trình]
     B --> F[Schema catalog: nguồn, bảng, cột, ý nghĩa]
     D --> F
-    F --> G[Pipeline dùng để lập truy vấn]
+    F --> G[Pipeline dùng để lập kế hoạch và chọn cột profiling]
+    E --> P[Profiling các cột được chọn, có cache]
+    P --> G
     E --> H[SQL executor chạy truy vấn]
 ```
 
@@ -47,19 +49,22 @@ LLM chỉ nhận diện nhu cầu tra lịch; code xác định ngày. Nếu ng�
 
 ```mermaid
 flowchart TD
-    A[Question + as_of_date + toàn bộ rulebook] --> B[LLM lượt 1: trích xuất JSON]
+    A[Question + as_of_date + rulebook + README + schema] --> B[LLM lượt 1: lập kế hoạch và chọn cột]
     B --> D[Calendar resolver nếu cần]
-    D --> E[README + schema catalog]
-    E --> F[LLM lượt 2: mapping, SQL và quyết định trả lời]
-    F --> K{Có đủ dữ liệu?}
-    K -->|unanswerable hoặc abstain| I[Answer formatter]
-    K -->|có| G[Kiểm tra SQL chỉ đọc]
-    G --> H[Thực thi SQL]
+    D --> E[Code profiling cột liên quan]
+    E --> F[LLM lượt 2: tạo SQL hoặc quyết định thiếu dữ liệu]
+    F --> K{Kiểm tra bằng chứng hoặc SQL}
+    K -->|hợp lệ| H[Thực thi SQL và kiểm tra kết quả]
+    K -->|lỗi có thể sửa| R[LLM lượt 3: sửa một lần]
+    H -->|lỗi có thể sửa| R
+    R --> K
     H --> I[Answer formatter]
+    K -->|unanswerable có bằng chứng hoặc abstain| I
+    K -->|vẫn lỗi| I
     I --> J[Submission record]
 ```
 
-Lượt 1 chỉ trích xuất phép tính, luật, khoảng thời gian, bộ lọc, đơn vị và kiểu đáp án dự kiến. Nó không có `status` và không quyết định `unanswerable` hay `abstain`. Lượt 2 nối kế hoạch với bảng/cột thật rồi quyết định truy vấn, `unanswerable` hoặc `abstain`. Không có dòng khớp trong một kỳ có dữ liệu có thể cho kết quả 0; cần đối chiếu phạm vi dữ liệu trước khi quyết định. Kết quả SQL được kiểm tra trước khi xuất đáp án.
+Lượt 1 đọc README và schema thật, trích xuất phép tính, luật, khoảng thời gian, bộ lọc, đơn vị, kiểu đáp án dự kiến và các cột cần profiling. Nó không có `status`. Profiling đọc các giá trị liên quan: nhãn trạng thái, phạm vi ngày, định dạng số, mã và tên đối tượng; kết quả được cache theo công ty. Với cột có tối đa 32 giá trị khác nhau, profile gửi đủ `unique_values`; cột nhiều giá trị hơn chỉ gửi mẫu/top và đặt `unique_values_complete=false`. Lượt 2 dùng lại nguyên câu hỏi và luật để tạo SQL hoặc đề xuất `unanswerable`/`abstain`. Mỗi lượt có JSON Schema đầu ra riêng; vLLM giới hạn reasoning của DeepSeek R1 để dành token cho JSON. `unanswerable` cần trích dẫn README xác nhận thiếu trường hoặc phạm vi ngày đã profile hoàn toàn nằm ngoài kỳ hỏi. Không có dòng khớp trong một kỳ có dữ liệu có thể cho kết quả 0; kỳ chỉ giao một phần dữ liệu thì tính phần có dữ liệu. SQL và kiểu đáp án được kiểm tra; lỗi kích hoạt tối đa một lượt sửa, sau đó `abstain` nếu vẫn lỗi.
 
 ## 5. `answer` — định dạng và kiểm tra đáp án
 

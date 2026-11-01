@@ -1,6 +1,7 @@
 """Offline chat inference with vLLM on NVIDIA GPUs."""
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from .base import BaseLLM
 
@@ -37,6 +38,7 @@ class VLLMLLM(BaseLLM):
 
         self.model_id = model_id
         self._sampling_params = SamplingParams
+        self._reasoning_enabled = "deepseek-r1" in model_id.casefold()
         options = {
             "model": model_id,
             "max_model_len": max_model_len,
@@ -47,6 +49,12 @@ class VLLMLLM(BaseLLM):
         }
         if tokenizer_id is not None:
             options["tokenizer"] = tokenizer_id
+        if self._reasoning_enabled:
+            from vllm.config import ReasoningConfig
+
+            options["reasoning_config"] = ReasoningConfig(
+                reasoning_start_str="<think>", reasoning_end_str="</think>"
+            )
         self._llm = LLM(**options)
 
     def infer(
@@ -55,6 +63,8 @@ class VLLMLLM(BaseLLM):
         *,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        output_schema: dict[str, Any] | None = None,
+        thinking_token_budget: int | None = None,
     ) -> str:
         """Apply the model's chat template and return one generated response."""
         if not messages:
@@ -63,13 +73,20 @@ class VLLMLLM(BaseLLM):
             raise ValueError("max_tokens must be positive")
         if temperature < 0:
             raise ValueError("temperature must not be negative")
+        if thinking_token_budget is not None and thinking_token_budget < 1:
+            raise ValueError("thinking_token_budget must be positive")
+
+        sampling_options: dict[str, Any] = {"max_tokens": max_tokens, "temperature": temperature}
+        if output_schema is not None:
+            from vllm.sampling_params import StructuredOutputsParams
+
+            sampling_options["structured_outputs"] = StructuredOutputsParams(json=output_schema)
+        if self._reasoning_enabled and thinking_token_budget is not None:
+            sampling_options["thinking_token_budget"] = thinking_token_budget
 
         outputs = self._llm.chat(
             [[dict(message) for message in messages]],
-            sampling_params=self._sampling_params(
-                max_tokens=max_tokens,
-                temperature=temperature,
-            ),
+            sampling_params=self._sampling_params(**sampling_options),
             use_tqdm=False,
         )
         return outputs[0].outputs[0].text

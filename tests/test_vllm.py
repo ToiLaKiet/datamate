@@ -61,6 +61,50 @@ class VLLMLLMTests(unittest.TestCase):
             backend.infer([{"role": "user", "content": "hi"}], max_tokens=0)
         with self.assertRaisesRegex(ValueError, "temperature"):
             backend.infer([{"role": "user", "content": "hi"}], temperature=-1)
+        with self.assertRaisesRegex(ValueError, "thinking_token_budget"):
+            backend.infer([{"role": "user", "content": "hi"}], thinking_token_budget=0)
+
+    def test_deepseek_uses_json_constraint_and_reasoning_budget(self):
+        captured = {}
+
+        class FakeLLM:
+            def __init__(self, **kwargs):
+                captured["model_options"] = kwargs
+
+            def chat(self, conversations, *, sampling_params, use_tqdm):
+                captured["sampling_options"] = sampling_params.options
+                return [types.SimpleNamespace(outputs=[types.SimpleNamespace(text='{"status":"ok"}')])]
+
+        class FakeParams:
+            def __init__(self, **kwargs):
+                self.options = kwargs
+
+        class FakeReasoningConfig:
+            def __init__(self, **kwargs):
+                self.options = kwargs
+
+        class FakeStructuredOutputsParams:
+            def __init__(self, **kwargs):
+                self.options = kwargs
+
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.LLM = FakeLLM
+        fake_vllm.SamplingParams = FakeParams
+        fake_config = types.ModuleType("vllm.config")
+        fake_config.ReasoningConfig = FakeReasoningConfig
+        fake_sampling = types.ModuleType("vllm.sampling_params")
+        fake_sampling.StructuredOutputsParams = FakeStructuredOutputsParams
+        with patch.dict(sys.modules, {"vllm": fake_vllm, "vllm.config": fake_config,
+                                      "vllm.sampling_params": fake_sampling}):
+            backend = VLLMLLM("deepseek-ai/DeepSeek-R1-0528-Qwen3-8B")
+            backend.infer([{"role": "user", "content": "hi"}], max_tokens=4096,
+                          output_schema={"type": "object"}, thinking_token_budget=1024)
+
+        self.assertEqual(captured["model_options"]["reasoning_config"].options,
+                         {"reasoning_start_str": "<think>", "reasoning_end_str": "</think>"})
+        self.assertEqual(captured["sampling_options"]["thinking_token_budget"], 1024)
+        self.assertEqual(captured["sampling_options"]["structured_outputs"].options,
+                         {"json": {"type": "object"}})
 
     def test_cli_selects_vllm_and_passes_gpu_settings(self):
         argv = [

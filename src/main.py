@@ -24,7 +24,11 @@ def main() -> None:
     parser.add_argument("--modal-environment", help="Modal Environment name, if not the active default")
     parser.add_argument("--output", type=Path, default=Path("submission.jsonl"))
     parser.add_argument("--limit", type=int, help="Process only the first N questions")
-    parser.add_argument("--max-tokens", type=int, default=2048, help="Generation cap for each LLM stage")
+    parser.add_argument("--max-tokens", type=int, default=4096, help="Generation cap for each LLM stage")
+    parser.add_argument("--stage1-thinking-tokens", type=int, default=1024,
+                        help="Reasoning budget for stage 1 on DeepSeek R1 (0 disables the cap)")
+    parser.add_argument("--stage2-thinking-tokens", type=int, default=2048,
+                        help="Reasoning budget for stage 2 and repair on DeepSeek R1 (0 disables the cap)")
     parser.add_argument("--debug-dir", type=Path, help="Write a trace JSON file for each question")
     args = parser.parse_args()
     
@@ -45,7 +49,11 @@ def main() -> None:
         )
     else:
         llm = MLXLLM(args.model)
-    pipeline = InferencePipeline(llm, max_tokens=args.max_tokens)
+    pipeline = InferencePipeline(
+        llm, max_tokens=args.max_tokens,
+        stage1_thinking_tokens=args.stage1_thinking_tokens,
+        stage2_thinking_tokens=args.stage2_thinking_tokens,
+    )
     run_dataset(args.dataset, args.output, pipeline, limit=args.limit, debug_dir=args.debug_dir)
 
 

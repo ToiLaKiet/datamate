@@ -1,6 +1,7 @@
 """Local text generation with an MLX-compatible language model."""
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from .base import BaseLLM
 
@@ -26,6 +27,8 @@ class MLXLLM(BaseLLM):
         *,
         max_tokens: int = 512,
         temperature: float = 0.0,
+        output_schema: dict[str, Any] | None = None,
+        thinking_token_budget: int | None = None,
     ) -> str:
         """Return the model's response to a chat conversation as plain text."""
         if not messages:

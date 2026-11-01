@@ -10,7 +10,9 @@ except ModuleNotFoundError as exc:
 
 if modal is not None:
     app = modal.App("datamate")
-    vllm_image = modal.Image.debian_slim(python_version="3.12").pip_install("vllm>=0.11")
+    vllm_image = modal.Image.debian_slim(python_version="3.12").pip_install("vllm==0.32.0")
+    hf_cache = modal.Volume.from_name("datamate-hf-cache", create_if_missing=True, version=2)
+    vllm_cache = modal.Volume.from_name("datamate-vllm-cache", create_if_missing=True, version=2)
 
     def _remote_tokenizer(model_id: str) -> str | None:
         if model_id != "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B":
@@ -45,7 +47,12 @@ if modal is not None:
     @app.cls(
         gpu="H100",
         memory=16384,
+        startup_timeout=900,
         image=vllm_image,
+        volumes={
+            "/root/.cache/huggingface": hf_cache,
+            "/root/.cache/vllm": vllm_cache,
+        },
         env={"VLLM_USE_FLASHINFER_SAMPLER": "0"},
     )
     class RemoteVLLM:
@@ -68,7 +75,30 @@ if modal is not None:
             messages: list[dict[str, str]],
             max_tokens: int = 512,
             temperature: float = 0.0,
+            output_schema: dict | None = None,
+            thinking_token_budget: int | None = None,
         ) -> str:
             return self.backend.infer(
-                messages, max_tokens=max_tokens, temperature=temperature
+                messages, max_tokens=max_tokens, temperature=temperature,
+                output_schema=output_schema, thinking_token_budget=thinking_token_budget,
             )
+
+    @app.local_entrypoint()
+    def main(model_id: str, prompt: str = "Xin chào", max_model_len: int = 16384) -> None:
+        """Smoke-test the deployed inference path with JSON output."""
+        output_schema = {
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+            "additionalProperties": False,
+        }
+        response = RemoteVLLM(model_id=model_id, max_model_len=max_model_len).infer.remote(
+            [
+                {"role": "system", "content": "Trả lời ngắn gọn bằng JSON với trường answer."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=1024,
+            output_schema=output_schema,
+            thinking_token_budget=256,
+        )
+        print(response)
