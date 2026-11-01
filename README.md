@@ -58,7 +58,7 @@ Trên Mac, `uv` sử dụng Python 3.12 của project và cài Modal CLI tạm t
 
 ```bash
 uv run --with modal modal setup  # chỉ cần lần đầu để đăng nhập
-uv run --with modal modal run -m src.llm.vllm \
+uv run --with modal modal run -m src.llm.modalcomputes.setup \
   --model-id deepseek-ai/DeepSeek-R1-0528-Qwen3-8B \
   --prompt "Xin chào"
 ```
@@ -70,10 +70,10 @@ uv run --with modal modal run -m src.llm.vllm \
 Muốn đăng ký app lâu dài để gọi từ chương trình khác:
 
 ```bash
-uv run --with modal modal deploy -m src.llm.vllm
+uv run --with modal modal deploy -m src.llm.modalcomputes.setup
 ```
 
-Dùng `-m` vì `src.llm.vllm` là module có relative imports. Deployment đăng ký `RemoteVLLM` trên H100; truyền `model_id` là tên model tương thích vLLM khi gọi `RemoteVLLM(model_id="...").infer.remote(messages)`. Đây là Modal RPC, chưa có URL HTTP. `load()` chạy một lần cho mỗi container mới; `infer()` nhận nhiều lượt gọi trên container đó.
+Dùng `-m` vì `src.llm.modalcomputes.setup` là module có relative imports. Deployment đăng ký `RemoteVLLM` trên H100; truyền `model_id` là tên model tương thích vLLM khi gọi `RemoteVLLM(model_id="...").infer.remote(messages)`. Đây là Modal RPC, chưa có URL HTTP. `load()` chạy một lần cho mỗi container mới; `infer()` nhận nhiều lượt gọi trên container đó.
 
 Để chạy toàn bộ pipeline trên dữ liệu local và gửi hai lượt LLM đến app Modal đã deploy:
 

@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=2048, help="Generation cap for each LLM stage")
     parser.add_argument("--debug-dir", type=Path, help="Write a trace JSON file for each question")
     args = parser.parse_args()
-
+    
     if args.runtime == "modal":
         llm = ModalLLM(
             args.model,

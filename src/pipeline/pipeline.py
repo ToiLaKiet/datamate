@@ -71,6 +71,8 @@ class InferencePipeline:
                 f"Câu hỏi: {question['question']}\nas_of_date: {question['as_of_date']}\n\nRulebook:\n{rulebook}"
             )},
             ], max_tokens=self.max_tokens, temperature=0.0)
+
+            print(f"Stage 1 LLM output: {first}")
         except RuntimeError as exc:
             trace["failed_stage"] = "stage1"
             raise PipelineFailure(str(exc), trace) from exc
@@ -110,6 +112,9 @@ class InferencePipeline:
                 "README công ty:\n" + catalog.readme + "\n\nSchema SQL:\n" + catalog.describe()
             )},
             ], max_tokens=self.max_tokens, temperature=0.0)
+            
+            print(f"Stage 2 LLM output: {second}")
+            
         except RuntimeError as exc:
             trace["failed_stage"] = "stage2"
             raise PipelineFailure(str(exc), trace) from exc

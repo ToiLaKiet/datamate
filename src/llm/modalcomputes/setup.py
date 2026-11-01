@@ -1,4 +1,6 @@
 # Set-up Modal for remote inference on NVIDIA GPUs. If Modal is unavailable, the code will still work for local inference.
+from ..vllm import VLLMLLM
+
 try:
     import modal
 except ModuleNotFoundError as exc:

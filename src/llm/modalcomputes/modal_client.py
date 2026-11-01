@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
-from .base import BaseLLM
+from ..base import BaseLLM
 
 
 class ModalLLM(BaseLLM):
