@@ -311,6 +311,8 @@ class InferenceFlowTests(unittest.TestCase):
             self.assertEqual(len(profiles[2]["unique_values"]), 4)
             self.assertEqual(profiles[3]["matches"], [{"value": "Cà phê sữa", "count": 2}])
             self.assertTrue(profiles[3]["matches_complete"])
+            self.assertFalse(profiles[3]["unique_values_complete"])
+            self.assertNotIn("unique_values", profiles[3])
             self.assertEqual(profiles[4]["missing_key_rows"][0]["Tên hàng"], "Tổng ngày")
             self.assertEqual(profiles[4]["missing_key_rows"][0]["__row_index"], 4)
             self.assertEqual(catalog.execute(

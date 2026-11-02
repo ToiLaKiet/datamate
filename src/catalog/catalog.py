@@ -238,7 +238,7 @@ class BusinessCatalog:
         result: dict[str, Any] = {
             "table": table, "column": column, "kind": kind,
             "rows": counts[0], "non_null": counts[1], "distinct": counts[2],
-            "unique_values_complete": counts[2] <= _MAX_UNIQUE_VALUES,
+            "unique_values_complete": kind != "lookup" and counts[2] <= _MAX_UNIQUE_VALUES,
         }
         if result["unique_values_complete"]:
             unique = conn.execute(

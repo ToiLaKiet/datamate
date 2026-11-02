@@ -179,7 +179,7 @@ class InferencePipeline:
             - categorical: cột trạng thái/nhóm/loại cần biết các giá trị thực và tần suất để chọn điều kiện lọc; dùng cho giá trị có ít nhóm.
             - lookup: cột tên khách hàng/sản phẩm/đối tượng khi câu hỏi nêu một tên cụ thể; term là một phần tên từ câu hỏi, chương trình tìm các giá trị chứa term không phân biệt hoa/thường hoặc dấu. Không dùng lookup để liệt kê toàn bộ nhóm.
             - key: cột mã phiếu/mã đơn/khóa giao dịch hoặc khóa nối; xem mẫu mã và các dòng thiếu khóa để nhận ra dòng tổng/ghi chú hay cấu trúc nhóm. Chỉ yêu cầu khi khóa giúp đếm, ghép bảng hoặc loại dòng không phải giao dịch.
-            Mọi profile trả số dòng, số giá trị khác nhau và unique_values đầy đủ chỉ khi distinct<=32; nếu nhiều hơn, mẫu trả về không đại diện cho toàn bộ dữ liệu. Yêu cầu profile cho các cột trực tiếp quyết định ngày, phép tính, lọc hoặc tính hợp lệ; để [] chỉ khi không cần kiểm tra giá trị cột.
+            Mọi profile trả số dòng và số giá trị khác nhau. Với cột không phải lookup, unique_values đầy đủ chỉ khi distinct<=32; nếu nhiều hơn, chỉ xem mẫu là ví dụ. Profile lookup chỉ trả các tên khớp term, không liệt kê toàn bộ tên khách hàng/sản phẩm. Yêu cầu profile cho các cột trực tiếp quyết định ngày, phép tính, lọc hoặc tính hợp lệ; để [] chỉ khi không cần kiểm tra giá trị cột.
 
             Giữ các field bắt buộc kể cả khi giá trị là null hoặc []; các field khác chỉ thêm khi có ích. Schema JSON đầu ra:
             """
